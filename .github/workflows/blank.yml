@@ -1,0 +1,71 @@
+name: Mobile App Tests
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  custom-test:
+    runs-on: [self-hosted, macos]
+    steps:
+      - name: Set Variables
+        run: |
+          DEVICE_TYPE=${{ env.DEVICE_TYPE }}
+          TEST_TYPE=${{ env.TEST_TYPE }}
+          MODULE_NAME=${{ env.MODULE_NAME }}
+          BUILD_PIPELINE_NO=${{ env.BUILD_PIPELINE_NO }}
+          echo "Device Type is - $DEVICE_TYPE"
+          echo "Test Type is - $TEST_TYPE"
+          echo "Module name is - $MODULE_NAME"
+
+      - name: Download App
+        run: |
+          if [[ "$DEVICE_TYPE" == "Android" ]]; then
+            export TESTNG_XML_FILE="testng-android.xml"
+            curl -s -L -O -u "$BITBUCKET_USERNAME:$BITBUCKET_APP_PASSWORD" "https://api.bitbucket.org/2.0/repositories/floatrapp/mobileapp/downloads/pipe-$BUILD_PIPELINE_NO-app-release.apk"
+          elif [[ "$DEVICE_TYPE" == "iOS" ]]; then
+            export TESTNG_XML_FILE="testng-ios.xml"
+            curl -s -L -O -u "$BITBUCKET_USERNAME:$BITBUCKET_APP_PASSWORD" "https://api.bitbucket.org/2.0/repositories/floatrapp/mobileapp/downloads/pipe-$BUILD_PIPELINE_NO-floatr.zip"
+            unzip "pipe-$BUILD_PIPELINE_NO-floatr.zip"
+          elif [[ "$DEVICE_TYPE" == "Both in parallel" ]]; then
+            export TESTNG_XML_FILE="testng-parallel.xml"
+            curl -s -L -O -u "$BITBUCKET_USERNAME:$BITBUCKET_APP_PASSWORD" "https://api.bitbucket.org/2.0/repositories/floatrapp/mobileapp/downloads/pipe-$BUILD_PIPELINE_NO-app-release.apk"
+            curl -s -L -O -u "$BITBUCKET_USERNAME:$BITBUCKET_APP_PASSWORD" "https://api.bitbucket.org/2.0/repositories/floatrapp/mobileapp/downloads/pipe-$BUILD_PIPELINE_NO-floatr.zip"
+            unzip "pipe-$BUILD_PIPELINE_NO-floatr.zip"
+          else
+            echo "Invalid device type"
+            exit 1
+          fi
+
+      - name: Set Cucumber Tags
+        run: |
+          if [[ "$TEST_TYPE" == "Smoke Test" ]]; then
+            if [[ "$MODULE_NAME" == "All" ]]; then export CUCUMBER_TAG="@Smoke"
+            elif [[ "$MODULE_NAME" == "Create Budget" ]]; then export CUCUMBER_TAG="@CreateBudgetSmoke"
+            # Add other module names as needed
+            else echo "Invalid module name"; exit 1; fi
+          elif [[ "$TEST_TYPE" == "Regression Test" ]]; then
+            if [[ "$MODULE_NAME" == "All" ]]; then export CUCUMBER_TAG="@Regression"
+            # Add similar logic for regression tests
+            else echo "Invalid module name"; exit 1; fi
+          else
+            echo "Invalid test type and module name"
+            exit 1
+          fi
+          echo "CUCUMBER_TAG is $CUCUMBER_TAG"
+
+      - name: Run Appium Tests
+        run: |
+          echo "Running Maven tests with $CUCUMBER_TAG"
+          mvn test -Dsurefire.suiteXmlFiles="$TESTNG_XML_FILE" -Dcucumber.filter.tags="$CUCUMBER_TAG" -DPipelineNumber="$BUILD_PIPELINE_NO" -DBitbucketBranch="$BITBUCKET_BRANCH"
+
+      - name: Clean up and Publish Artifacts
+        run: |
+          echo "Publishing artifacts..."
+          rm -rf Android_Automation_Reports
+          rm -rf iOS_Automation_Reports
+          if [ -d target/iPhone14ProMax/cucumber-html-reports/cucumber-html-reports/ ]; then mkdir -p iOS_Automation_Reports/; fi
+          if [ -d target/Pixel5/cucumber-html-reports/cucumber-html-reports/ ]; then mkdir -p Android_Automation_Reports/; fi
+          if [ -d target/iPhone14ProMax/cucumber-html-reports/cucumber-html-reports/ ]; then mv target/iPhone14ProMax/cucumber-html-reports/cucumber-html-reports/ iOS_Automation_Reports/; fi
+          if [ -d target/Pixel5/cucumber-html-reports/cucumber-html-reports/ ]; then mv target/Pixel5/cucumber-html-reports/cucumber-html-reports/ Android_Automation_Reports/; fi
